@@ -252,6 +252,11 @@ Your agent should list the installed skills with their capabilities.
 ## Skills List
 
 ---
+## Skills Searcher
+
+medical-skill-finder
+
+---
 
 ## General Tools
 

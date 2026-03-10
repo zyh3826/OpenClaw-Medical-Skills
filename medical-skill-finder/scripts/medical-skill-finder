@@ -1,0 +1,431 @@
+#!/bin/bash
+# Medical Skill Finder - 从 OpenClaw-Medical-Skills 搜索医疗技能
+
+set -e
+
+REPO_URL="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills"
+REPO_DIR="${HOME}/.openclaw/skills-repo"
+INDEX_FILE="${HOME}/.openclaw/medical-skills-index.json"
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# 检测当前索引语言
+detect_lang() {
+    if [ -f "$INDEX_FILE" ]; then
+        local first_cat=$(jq -r '.[0].category' "$INDEX_FILE" 2>/dev/null)
+        if [[ "$first_cat" =~ ^[A-Za-z] ]]; then
+            echo "en"
+        else
+            echo "zh"
+        fi
+    else
+        echo "zh"
+    fi
+}
+
+# 获取翻译消息
+t() {
+    local lang=$(detect_lang)
+    local key="$1"
+    
+    case "$lang" in
+        en)
+            case "$key" in
+                "error_no_query") echo "Error: Please provide a search query";;
+                "index_syncing") echo "Index not found, syncing...";;
+                "searching") echo "Searching: $2";;
+                "no_match_try_generic") echo "No exact match, trying broader search...";;
+                "no_match_suggest") echo "No related skills found. Suggestions:";;
+                "suggest_english") echo "  - Try English keywords";;
+                "suggest_generic") echo "  - Try more general keywords";;
+                "suggest_list") echo "  - Run 'medical-skill-finder list' to browse all skills";;
+                "found_count") echo "Found $2 related skills:";;
+                "skill_detail") echo "Skill Details";;
+                "name") echo "Name";;
+                "category") echo "Category";;
+                "description") echo "Description";;
+                "keywords") echo "Keywords";;
+                "github") echo "GitHub";;
+                "install_cmd") echo "Install command";;
+                "install_clawhub") echo "Or via ClawHub:";;
+                "not_found_skill") echo "Skill not found: $2";;
+                "all_skills") echo "All skills";;
+                "total_skills") echo "Total:";;
+                "stats_title") echo "OpenClaw Medical Skills Statistics";;
+                "by_category") echo "By Category:";;
+                "top_keywords") echo "Top Keywords:";;
+                *) echo "$key";;
+            esac
+            ;;
+        *)
+            case "$key" in
+                "error_no_query") echo "错误: 请提供搜索关键词";;
+                "index_syncing") echo "索引不存在，正在同步...";;
+                "searching") echo "搜索: $2";;
+                "no_match_try_generic") echo "未找到匹配的技能，尝试更通用的关键词";;
+                "no_match_suggest") echo "未找到相关技能，建议:";;
+                "suggest_english") echo "  - 使用英文搜索";;
+                "suggest_generic") echo "  - 尝试更通用的关键词";;
+                "suggest_list") echo "  - 运行 'medical-skill-finder list' 查看所有技能";;
+                "found_count") echo "找到 $2 个相关技能:";;
+                "skill_detail") echo "技能详情";;
+                "name") echo "名称";;
+                "category") echo "分类";;
+                "description") echo "描述";;
+                "keywords") echo "关键词";;
+                "github") echo "GitHub";;
+                "install_cmd") echo "安装命令";;
+                "install_clawhub") echo "或通过 ClawHub:";;
+                "not_found_skill") echo "未找到技能: $2";;
+                "all_skills") echo "所有技能";;
+                "total_skills") echo "总计:";;
+                "stats_title") echo "OpenClaw Medical Skills 统计信息";;
+                "by_category") echo "按分类统计:";;
+                "top_keywords") echo "热门关键词:";;
+                *) echo "$key";;
+            esac
+            ;;
+    esac
+}
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 显示帮助
+show_help() {
+    cat << EOF
+Medical Skill Finder - 从 OpenClaw-Medical-Skills 搜索医疗技能
+
+用法:
+    medical-skill-finder <command> [options]
+
+命令:
+    sync                    同步技能库（默认中文）
+    sync-zh                 同步中文技能库
+    sync-en                 同步英文技能库
+    search <关键词> [数量]   搜索技能
+    show <技能名>           显示技能详情
+    list [分类]             列出所有技能或指定分类
+    stats                   显示统计信息
+    help                    显示帮助
+
+示例:
+    medical-skill-finder sync          # 中文版
+    medical-skill-finder sync-en       # English
+    medical-skill-finder search "PubMed"
+    medical-skill-finder search "药物发现" 10
+    medical-skill-finder show biomedical-search
+    medical-skill-finder list "生物信息学"
+    medical-skill-finder stats
+
+EOF
+}
+
+# 同步技能库
+# 参数: $1 = 语言 (zh/en, 默认 zh)
+cmd_sync() {
+    local lang="${1:-zh}"
+    local readme_url
+    local lang_name
+    
+    if [ "$lang" = "en" ]; then
+        readme_url="https://raw.githubusercontent.com/FreedomIntelligence/OpenClaw-Medical-Skills/main/README.md"
+        lang_name="English"
+    else
+        readme_url="https://raw.githubusercontent.com/FreedomIntelligence/OpenClaw-Medical-Skills/main/README_zh.md"
+        lang_name="中文"
+    fi
+    
+    echo -e "${CYAN}📥 正在同步 OpenClaw-Medical-Skills ($lang_name) 技能库...${NC}"
+    
+    # 克隆或更新仓库
+    if [ -d "$REPO_DIR" ]; then
+        echo -e "${YELLOW}🔄 更新现有仓库...${NC}"
+        cd "$REPO_DIR"
+        git pull origin main --quiet 2>/dev/null || true
+    else
+        echo -e "${YELLOW}🌀 克隆仓库...${NC}"
+        mkdir -p "$(dirname "$REPO_DIR")"
+        git clone --depth 1 "$REPO_URL" "$REPO_DIR" --quiet
+    fi
+    
+    # 解析 README
+    echo -e "${YELLOW}📊 正在解析技能数据 ($lang_name)...${NC}"
+    parse_skills_from_readme "$readme_url" > "$INDEX_FILE"
+    
+    local count=$(jq length "$INDEX_FILE")
+    echo -e "${GREEN}✅ 同步完成！共解析 $count 个技能${NC}"
+}
+
+# 从 README 解析技能列表（带分类）
+# 参数: $1 = README URL
+parse_skills_from_readme() {
+    local readme_url="$1"
+    local readme_file="/tmp/medical_skills_readme.md"
+    
+    # 下载 README
+    curl -s "$readme_url" > "$readme_file"
+    
+    # 解析技能列表
+    echo "["
+    
+    local first=true
+    local current_category=""
+    
+    # 逐行读取
+    while IFS= read -r line; do
+        # 检测分类标题 (## 类别名 或 ### 类别名)
+        if [[ "$line" =~ ^#{1,3}\ +(.+) ]]; then
+            local title="${BASH_REMATCH[1]}"
+            # 排除非分类的标题
+            case "$title" in
+                "项目简介"|"为什么需要这个技能库"|"安装方法"|"前置要求"|"OpenClaw 用户"|"NanoClaw 用户"|"验证安装"|"技能总览"|"目录导航"|"技能列表"|"致谢")
+                    current_category=""
+                    ;;
+                *)
+                    current_category="$title"
+                    ;;
+            esac
+        fi
+        
+        # 检测技能行 | [skill-name](skills/xxx/) | 描述 |
+        if echo "$line" | grep -qE '\[.+\]\(skills/.+/\)'; then
+            local skill_name=$(echo "$line" | grep -oE '\[.+?\]' | head -1 | sed 's/\[//;s/\]//')
+            local description=""
+            
+            # 提取描述 (第3列，以 | 分隔)
+            description=$(echo "$line" | awk -F'|' '{print $3}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            
+            # 跳过空行和无效行
+            if [[ -n "$skill_name" ]] && [[ "$skill_name" != "技能" ]]; then
+                # 获取 GitHub URL
+                local url="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills/tree/main/skills/$skill_name"
+                
+                # 转义 JSON 特殊字符
+                description=$(echo "$description" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                
+                if [ "$first" = true ]; then
+                    first=false
+                else
+                    echo ","
+                fi
+                
+                cat << EOF
+  {
+    "name": "$skill_name",
+    "description": "$description",
+    "keywords": "",
+    "category": "$current_category",
+    "url": "$url"
+  }
+EOF
+            fi
+        fi
+    done < "$readme_file"
+    
+    echo "]"
+}
+
+# 解析所有技能
+# 搜索技能
+cmd_search() {
+    local query="$1"
+    local limit="${2:-10}"
+    
+    if [ -z "$query" ]; then
+        echo -e "${RED}$(t "error_no_query")${NC}"
+        echo "Usage: medical-skill-finder search <query> [limit]"
+        exit 1
+    fi
+    
+    # 检查索引是否存在
+    if [ ! -f "$INDEX_FILE" ]; then
+        echo -e "${YELLOW}$(t "index_syncing")${NC}"
+        cmd_sync
+    fi
+    
+    echo -e "${CYAN}🔍 $(t "searching" "$query")${NC}\n"
+    
+    # 搜索（支持中文和英文关键词）
+    local results=$(jq --arg query "$query" --arg limit "$limit" '
+        map(select(
+            (.name | test($query; "i")) or
+            (.description | test($query; "i")) or
+            (.keywords | test($query; "i")) or
+            (.category | test($query; "i"))
+        )) | .[0:$limit | length]
+    ' "$INDEX_FILE")
+    
+    local count=$(echo "$results" | jq 'length')
+    
+    if [ "$count" -eq 0 ]; then
+        echo -e "${YELLOW}$(t "no_match_try_generic")${NC}"
+        # 尝试更宽松的匹配
+        local short_query=$(echo "$query" | cut -c1-5)
+        results=$(jq --arg query "$short_query" --arg limit "$limit" '
+            map(select(
+                (.name | test($query; "i")) or
+                (.description | test($query; "i")) or
+                (.keywords | test($query; "i"))
+            )) | .[0:$limit | length]
+        ' "$INDEX_FILE")
+        count=$(echo "$results" | jq 'length')
+    fi
+    
+    if [ "$count" -eq 0 ]; then
+        echo -e "${YELLOW}$(t "no_match_suggest")${NC}"
+        echo "$(t "suggest_generic")"
+        echo "$(t "suggest_english")"
+        echo "$(t "suggest_list")"
+        exit 0
+    fi
+    
+    echo -e "${GREEN}$(t "found_count" "$count")${NC}\n"
+    
+    echo "$results" | jq -r '.[] | 
+        "📦 " + .name + "\n" +
+        "   描述: " + (.description[0:80]) + 
+        (if .description | length > 80 then "..." else "" end) + "\n" +
+        "   分类: " + .category + "\n" +
+        "   🔗 " + .url + "\n" +
+        "   安装: cp -r $REPO_DIR/skills/" + .name + " ~/.openclaw/skills/\n"
+    '
+}
+
+# 显示技能详情
+cmd_show() {
+    local name="$1"
+    
+    if [ -z "$name" ]; then
+        echo -e "${RED}错误: 请提供技能名称${NC}"
+        echo "用法: medical-skill-finder show <技能名>"
+        exit 1
+    fi
+    
+    if [ ! -f "$INDEX_FILE" ]; then
+        echo -e "${YELLOW}索引不存在，正在同步...${NC}"
+        cmd_sync
+    fi
+    
+    local skill=$(jq --arg name "$name" '.[] | select(.name == $name)' "$INDEX_FILE")
+    
+    if [ -z "$skill" ] || [ "$skill" = "null" ]; then
+        # 尝试模糊匹配
+        skill=$(jq --arg name "$name" '.[] | select(.name | test($name; "i"))' "$INDEX_FILE" | head -1)
+    fi
+    
+    if [ -z "$skill" ] || [ "$skill" = "null" ]; then
+        echo -e "${RED}未找到技能: $name${NC}"
+        exit 1
+    fi
+    
+    echo "$skill" | jq -r '
+        "📦 技能详情\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "名称: " + .name + "\n" +
+        "分类: " + .category + "\n" +
+        "描述: " + .description + "\n" +
+        "关键词: " + .keywords + "\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "GitHub: " + .url + "\n" +
+        "安装命令:\n" +
+        "  cp -r $ENV[REPO_DIR]/skills/" + .name + " ~/.openclaw/skills/\n" +
+        "或通过 ClawHub:\n" +
+        "  clawhub install " + .name + "\n"
+    '
+}
+
+# 列出技能
+cmd_list() {
+    local filter="$1"
+    local keyword_filter="$2"
+    
+    if [ ! -f "$INDEX_FILE" ]; then
+        echo -e "${YELLOW}索引不存在，正在同步...${NC}"
+        cmd_sync
+    fi
+    
+    local results
+    
+    if [ -n "$filter" ] && [ "$filter" = "--keyword" ]; then
+        # 按关键词列出
+        results=$(jq --arg kw "$keyword_filter" '.[] | select(.keywords | test($kw; "i"))' "$INDEX_FILE")
+    elif [ -n "$filter" ]; then
+        # 按分类列出
+        results=$(jq --arg cat "$filter" '.[] | select(.category == $cat)' "$INDEX_FILE")
+    else
+        # 列出所有
+        results=$(jq -r '.[] | .name + " | " + .category + " | " + (.description[0:60])' "$INDEX_FILE")
+        echo -e "${CYAN}所有技能 (共 $(jq length "$INDEX_FILE") 个):${NC}\n"
+        echo "$results" | column -t -s "|" -W3
+        return 0
+    fi
+    
+    local count=$(echo "$results" | jq -s 'length')
+    echo -e "${CYAN}找到 $count 个技能:${NC}\n"
+    echo "$results" | jq -r '.name + " | " + .category'
+}
+
+# 显示统计信息
+cmd_stats() {
+    if [ ! -f "$INDEX_FILE" ]; then
+        echo -e "${YELLOW}索引不存在，正在同步...${NC}"
+        cmd_sync
+    fi
+    
+    local total=$(jq length "$INDEX_FILE")
+    
+    echo -e "${CYAN}📊 OpenClaw Medical Skills 统计信息${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${GREEN}总技能数: $total${NC}"
+    echo ""
+    echo "📂 按分类统计:"
+    jq -r '.[] | .category' "$INDEX_FILE" | sort | uniq -c | sort -rn | while read count category; do
+        printf "  %-30s %s\n" "$category" "$count"
+    done
+    
+    echo ""
+    echo "🔑 热门关键词 (Top 20):"
+    jq -r '.[] | .keywords' "$INDEX_FILE" | tr ',' '\n' | tr -d ' ' | sort | uniq -c | sort -rn | head -20 | while read count kw; do
+        [ -n "$kw" ] && printf "  %-25s %s\n" "$kw" "$count"
+    done
+}
+
+# 主命令处理
+case "${1:-help}" in
+    sync)
+        cmd_sync "$2"
+        ;;
+    sync-zh)
+        cmd_sync "zh"
+        ;;
+    sync-en)
+        cmd_sync "en"
+        ;;
+    search)
+        cmd_search "$2" "$3"
+        ;;
+    show)
+        cmd_show "$2"
+        ;;
+    list)
+        cmd_list "$2" "$3"
+        ;;
+    stats)
+        cmd_stats
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo -e "${RED}未知命令: $1${NC}"
+        show_help
+        exit 1
+        ;;
+esac

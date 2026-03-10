@@ -251,6 +251,12 @@ Agent 应当列出已安装的技能及其功能说明。
 
 ---
 
+## SKills搜索器
+
+medical-skill-finder
+
+---
+
 ## 通用工具
 
 | 技能 | 说明 |
